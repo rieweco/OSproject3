@@ -1,0 +1,14 @@
+Cody Riewerts
+README file for project 3
+
+Operating System Simulator
+This will be your main program and serve as the master process. You will start the operating system simulator (call the executable oss) as one main process who will fork multiple children and then fork off new 
+children as some terminate.
+
+
+
+--------------------------------------------------------------------
+
+
+
+
