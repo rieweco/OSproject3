@@ -8,6 +8,8 @@
 #include <getopt.h>
 #include <errno.h>
 #include "node.h"
+#include <math.h>
+#include <signal.h>
 
 #define MAX_LINE 100
 #define DEFAULT_SLAVE 5
@@ -17,17 +19,21 @@
 pid_t r_wait(int* stat_loc);
 void helpOptionPrint();
 void programRunSettingsPrint(int numberOfSlaveProcesses, char *filename, int runtime);
-
+void int_Handler(int);
 int main(int argc, char *argv[])
 {
-	
+	//set up signal handler
+	signal(SIGINT, int_Handler);
+
+	//declare vars
+	//seconds for shmat
 	int total = 0;
 	int prCount = 0;
 	int opt = 0;
 	int numberOfSlaveProcesses = DEFAULT_SLAVE;
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
-	pid_t master = 0;
+	pid_t master = 1;
 	
 	//read command line options
 	while((opt = getopt(argc, argv, "h s:l:t:")) != -1)
@@ -61,60 +67,48 @@ int main(int argc, char *argv[])
 	pid = (ChildProcess *)malloc(sizeof(ChildProcess) * numberOfSlaveProcesses);
 	fprintf(stderr, "pid memory size: %d\n", sizeof(pid));
 	
+	int count = numberOfSlaveProcesses;
+	int i = 0;
 	//loop to spawn processes
-	while(1)
-	{	
-		if(numberOfSlaveProcesses == prCount)
-		{
-			wait(NULL);
-			prCount--;
-		}
+	for(i; i < numberOfSlaveProcesses; i++)
+	{
 	
-	
+		fprintf(stderr,"Count: %d\n", total);
 		prCount++;
-		total++;
 		master = fork();
+		
 	
 		if(master < 0)
-		{	
-			perror("Program failed to fork!");
+		{
+			perror("Program failed to fork");
 			return 1;
-		}				
-	
-		if(master == 0)
+		}	
+		else if(master > 0)
+		{
+			total++;
+		}	
+		else
 		{
 			fprintf(stderr, "Process ID:%ld Parent ID:%ld slave ID:%ld\n",
-			(long)getpid(), (long)getppid(), (long)master);
-			sleep(1);
-		}
+       	 		(long)getpid(), (long)getppid(), (long)master);
 		
-		//check for closed processes
-		if(waitpid(-1, NULL, WNOHANG) != 0)
-		{
-			prCount--;
-		}
-	}	
-/*		******* code that was not working *******
-	for(i = 0; i < numberOfSlaveProcesses; i++)
-	{
-		
-		pid_t master = fork();
-		if(master == 0)
-		{
-			total = total + 1;
-                        printf("Child %d  Master is %d \n\n", getpid(), getppid());	
 			exit(0);
 		}
-		else if((master = fork()) < 0)
-		{
-			perror("Child failed to fork!\n");
-			exit(EXIT_FAILURE);	
-		}
-		wait(NULL);
-	} 
-*/
+	}
 
-	
+/*	
+	//while time < 2 seconds
+	while(seconds < 2)		
+	{	
+		//
+	}
+		
+	if(waitpid(-1, NULL, WNOHANG) != 0)
+	{
+		prCount--;
+	}
+*/
+		
 	//while loop to check child processes and close them
 	while(1)
 	{
@@ -129,10 +123,22 @@ int main(int argc, char *argv[])
 	//wait until processes are finished
 	//while(r_wait(NULL) < 0);
 	
+	printf("Program terminating...\n");
 	fprintf(stderr, "Total Children: %d\n", total);
 
 	return 0;
 }
+
+
+//function for exiting on Ctrl-C
+void int_Handler(int sig)
+{
+	signal(sig, SIG_IGN);
+	printf("Program terminated using Ctrl-C");
+	exit(0);
+}
+
+//alarm function
 
 
 //function to wait - from UNIX book
@@ -143,7 +149,6 @@ pid_t r_wait(int* stat_loc)
     	while(((retval = wait(stat_loc)) == -1) && (errno == EINTR));
    	return retval;
 }
-
 
 //function to print out the program settings after options have been set.
 void programRunSettingsPrint(int numberOfSlaveProcesses, char *filename, int runtime)
