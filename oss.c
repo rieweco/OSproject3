@@ -20,11 +20,14 @@ void programRunSettingsPrint(int numberOfSlaveProcesses, char *filename, int run
 
 int main(int argc, char *argv[])
 {
+	int total = 0;
+	int prCount = 0;
 	int opt = 0;
 	int numberOfSlaveProcesses = DEFAULT_SLAVE;
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
-
+	pid_t master = 0;
+	
 	//read command line options
 	while((opt = getopt(argc, argv, "h s:l:t:")) != -1)
 	{
@@ -55,38 +58,77 @@ int main(int argc, char *argv[])
 	//set up memory for children 
 	ChildProcess *pid;
 	pid = (ChildProcess *)malloc(sizeof(ChildProcess) * numberOfSlaveProcesses);
+	fprintf(stderr, "pid memory size: %d\n", sizeof(pid));
 	
-	int i = 0;
-	pid_t master;
-	pid_t child;
-
-	if((master = fork()) < 0)
-	{
-		perror("Master failed to fork!\n");
-		exit(EXIT_FAILURE);
-	}
-	else if(master == 0)
-	{
-		printf("Master %d \n\n", getpid());
-	}
-
+	//loop to spawn processes
+	while(1)
+	{	
+		if(numberOfSlaveProcesses == prCount)
+		{
+			wait(NULL);
+			prCount--;
+		}
+	
+	
+		prCount++;
+		total++;
+		master = fork();
+	
+		if(master < 0)
+		{	
+			perror("Program failed to fork!");
+			return 1;
+		}				
+	
+		if(master == 0)
+		{
+			fprintf(stderr, "Process ID:%ld Parent ID:%ld slave ID:%ld\n",
+			(long)getpid(), (long)getppid(), (long)master);
+			sleep(1);
+		}
+		
+		//check for closed processes
+		if(waitpid(-1, NULL, WNOHANG) != 0)
+		{
+			prCount--;
+		}
+	}	
+/*		******* code that was not working *******
 	for(i = 0; i < numberOfSlaveProcesses; i++)
 	{
-		if((child = fork()) < 0)
+		
+		pid_t master = fork();
+		if(master == 0)
+		{
+			total = total + 1;
+                        printf("Child %d  Master is %d \n\n", getpid(), getppid());	
+			exit(0);
+		}
+		else if((master = fork()) < 0)
 		{
 			perror("Child failed to fork!\n");
-			exit(EXIT_FAILURE);
+			exit(EXIT_FAILURE);	
 		}
-		else
+		wait(NULL);
+	} 
+*/
+
+	
+	//while loop to check child processes and close them
+	while(1)
+	{
+		master = wait(NULL);
+	
+		if((master == -1) && (errno != EINTR))
 		{
-			printf("Child %d  Master is %d \n\n", getpid(), getppid());
+			break;
 		}
 	}
-
 	
 	//wait until processes are finished
 	//while(r_wait(NULL) < 0);
 	
+	fprintf(stderr, "Total Children: %d\n", total);
 
 	return 0;
 }
