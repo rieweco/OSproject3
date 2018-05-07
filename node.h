@@ -3,6 +3,8 @@
 #ifndef NODE_H
 #define NODE_H
 
+#define CLOCK_KEY 12221
+#define MESSAGE_KEY 21112
 
 //child struct that holds the child number and its pid
 typedef struct ChildProcess
@@ -24,15 +26,13 @@ Clock;
 //child message struct that contains the message,
 //pid, time of process in ss:nn, and a flag for
 //signalling being in/out of the critical section 
-typedef struct PassedMessage
+typedef struct Message
 {
 	long mtype;
-	int childNumber;
-	int seconds;
-	int nanoseconds;
-	int flag;
+	char content[100];
 }
-PassedMessage;
+Message;
+
 
 
 

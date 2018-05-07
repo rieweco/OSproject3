@@ -11,20 +11,31 @@
 #include <math.h>
 #include <signal.h>
 
-#define MAX_LINE 100
-#define DEFAULT_SLAVE 5
+#define MAX_PROCESSES 100
 #define DEFAULT_RUNTIME 20
+#define DEFAULT_SPAWNS 5
+#define PROCESS_LIMIT 17
 #define DEFAULT_FILENAME "logfile"
 
+//function declarations
 pid_t r_wait(int* stat_loc);
 void helpOptionPrint();
 void programRunSettingsPrint(int numberOfSlaveProcesses, char *filename, int runtime);
-void int_Handler(int);
+void int_Handler(int sig, siginfo_t *siginfo, void *context);
+int set_handler();
+int set_timer(double seconds);
+
+//global vars
+Clock *sharedClock;
+Message *msg;
+int clockMemoryID;
+int msgID;
+FILE logfile;
+
+
+
 int main(int argc, char *argv[])
 {
-	//set up signal handler
-	signal(SIGINT, int_Handler);
-
 	//declare vars
 	//seconds for shmat
 	int total = 0;
@@ -34,6 +45,12 @@ int main(int argc, char *argv[])
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
 	pid_t master = 1;
+	int ptime;
+	int psec;
+	int pnano;
+	int pid;
+	char msgInfo[100];
+	int doneFlag = 0;
 	
 	//read command line options
 	while((opt = getopt(argc, argv, "h s:l:t:")) != -1)
@@ -44,6 +61,10 @@ int main(int argc, char *argv[])
 				helpOptionPrint();
 				break;
 			case 's': numberOfSlaveProcesses = atoi(argv[2]);
+				if( numberOfSlaveProcesses > PROCESS_LIMIT) {
+					numberOfSlaveProcesses = 17;
+					printf("number of slave processes cannot be greater than 17! Setting to 17.");
+				}
 				fprintf(stderr, "Max number of slave processes set to : %d\n",
 				numberOfSlaveProcesses);
 				break;
@@ -62,10 +83,29 @@ int main(int argc, char *argv[])
 	//print out prg settings
 	programRunSettingsPrint(numberOfSlaveProcesses,filename,runtime);
 	
-	//set up memory for children 
-	ChildProcess *pid;
-	pid = (ChildProcess *)malloc(sizeof(ChildProcess) * numberOfSlaveProcesses);
-	fprintf(stderr, "pid memory size: %d\n", sizeof(pid));
+	//set up interrupt handler and timer functions
+	set_handler();
+	set_timer((double)runtime);
+		
+	//set up message queue
+	
+	
+	//set up shared memory segment for sharedClock
+	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0666 | IPC_CREAT);
+	if(clockMemoryID < 0)
+	{
+		perror("Creating shared memory for clock failed!\n");
+		exit(errno);
+	}
+	
+	//attach clock
+	sharedClock = shmat(clockMemoryID, NULL, 0);
+	
+	//initialize clock
+	sharedClock->seconds = 0;
+	sharedClock->nanoseconds = 0;
+
+
 	
 	int count = numberOfSlaveProcesses;
 	int i = 0;
@@ -95,20 +135,7 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 	}
-
-/*	
-	//while time < 2 seconds
-	while(seconds < 2)		
-	{	
-		//
-	}
-		
-	if(waitpid(-1, NULL, WNOHANG) != 0)
-	{
-		prCount--;
-	}
-*/
-		
+	
 	//while loop to check child processes and close them
 	while(1)
 	{
@@ -120,9 +147,6 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	//wait until processes are finished
-	//while(r_wait(NULL) < 0);
-	
 	printf("Program terminating...\n");
 	fprintf(stderr, "Total Children: %d\n", total);
 
@@ -131,15 +155,52 @@ int main(int argc, char *argv[])
 
 
 //function for exiting on Ctrl-C
-void int_Handler(int sig)
+void int_Handler(int sig, siginfo_t *info, void context)
 {
-	signal(sig, SIG_IGN);
-	printf("Program terminated using Ctrl-C");
-	exit(0);
+	signt errsave;
+
+    	errsave = errno;
+    	fprintf(logfile, "Interrupt Recieved! Terminating OSS!\n");
+	errno = errsave;
+    	signal(SIGUSR1, SIG_IGN);
+    	kill(-1*getpid(), SIGUSR1);
+    	shmdt(sharedClock);
+    	shmctl(clockID, IPC_RMID, NULL);
+    	msgctl(msgID, IPC_RMID, NULL);
+    	fclose(logfile);
+    	exit(1);
 }
 
-//alarm function
+//function to set up the interrupt handler
+int set_handler()
+{
+   	struct sigaction sig;
 
+    	sig.sa_flags = SA_SIGINFO;
+    	sig.sa_sigaction = interrupt;
+    if (((sigemptyset(&sig.sa_mask) == -1) || (sigaction(SIGALRM, &sig, NULL) == -1)) || sigaction(SIGINT, &sig, NULL) == -1)
+    {
+        return 1;
+    }
+    return 0;
+}
+
+//function to set the timer to close the program
+int set_timer(double seconds)
+{
+    	timer_t timer;
+    	struct itimerspec value;
+
+    	if (timer_create(CLOCK_REALTIME, NULL, &timer) == -1)
+    	{
+       		return -1;
+    	}
+    	value.it_value.tv_sec = (long)sec;
+    	value.it_value.tv_nsec = 0;
+    	value.it_interval.tv_sec = 0;
+    	value.it_interval.tv_nsec = 0;
+    	return timer_settime(timer 0, &value, NULL);
+}
 
 //function to wait - from UNIX book
 pid_t r_wait(int* stat_loc)
