@@ -37,8 +37,8 @@ FILE logfile;
 int main(int argc, char *argv[])
 {
 	//declare vars
-	//seconds for shmat
 	int total = 0;
+	int prcount = 0;
 	int opt = 0;
 	int numberOfSlaveProcesses = DEFAULT_SLAVE;
 	char *filename = DEFAULT_FILENAME;
@@ -50,7 +50,6 @@ int main(int argc, char *argv[])
 	int pid;
 	int ppid;
 	char *execInfo[];
-	char msgContent[100];
 	int doneFlag = 0;
 	
 	//read command line options
@@ -123,6 +122,7 @@ int main(int argc, char *argv[])
 		fprintf(stderr,"Total Process spawn count: %d\n", total);
 		pid = fork();
 		total++;
+		prcount++;
 	
 		if(pid < 0)
 		{
@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 			
-		fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nanoseconds);
+		fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nanoseconds); fflush(logfile);
 	}
 
 	//send message to child
@@ -155,7 +155,7 @@ int main(int argc, char *argv[])
 		pends = msg.ends;
 		pendn = msg.endn;
 		ppid = msg.pid;
-		fprintf(logfile, "Master: Child %d is terminating at my time %d.%d because it reached %d.%d, which lived for %d.%d\n", ppid, sharedClock->seconds, sharedClock->nanoseconds, pends, pendn, psec, pnano);
+		fprintf(logfile, "Master: Child %d is terminating at my time %d.%d because it reached %d.%d, which lived for %d.%d\n", ppid, sharedClock->seconds, sharedClock->nanoseconds, pends, pendn, psec, pnano); fflush(logfile);
 		
 		//critical section to change clock 100 ns
 		msgrcv(messageQueueID, &msg, sizeof(Message), CRITICAL_SECTION, 0); 
@@ -176,22 +176,60 @@ int main(int argc, char *argv[])
 			doneFlag = 1;
 		}
 		
+
+		//fork() another process
+		fprintf(stderr,"Total Process spawn count: %d\n", total);
+                pid = fork();
+                total++;
+
+                if(pid < 0)
+                {
+                        perror("Program failed to fork");
+                        return 1;
+                }
+                else if(pid > 0)
+                {
+                        //do nothing
+                }
+                else
+                {
+                        execvp(execInfo[0], execInfo);
+                        exit(0);
+                }
+
+                fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nano
+seconds); fflush(logfile);
+
+		//send message to queue
+		msg.mtype = CRITICAL_SECTION;
+		msgsnd(messageQueueID, &msg, sizeof(Message), 0);
+
 	}	
 	
+	//close message Queue
+	msgctl(messageQueueID, IPC_RMID, NULL);	
+
+	//detach shared memory
+	shmdt(sharedClock);
+	shmctl(sharedClockID, IPC_RMID, NULL);
+
 	//while loop to check child processes and close them
-	while(1)
+	signal(SIGUSR1, SIG_IGN);
+	kill( -1*getpid(), SIGUSR1);
+	while(prcount > 0)
 	{
-		master = wait(NULL);
-	
-		if((master == -1) && (errno != EINTR))
+		wait = waitpid(-1, &status, WNOHANG);
+		if(wait != 0)
 		{
-			break;
+			prcount--;
 		}
 	}
-	
-	printf("Program terminating...\n");
+		
+	fprintf(logfile,"Program termination normal...\n"); fflush(logfile);
+	fclose(logfile);
 	fprintf(stderr, "Total Children: %d\n", total);
-
+	
+	
 	return 0;
 }
 
