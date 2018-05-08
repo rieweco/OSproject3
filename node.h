@@ -5,6 +5,9 @@
 
 #define CLOCK_KEY 12221
 #define MESSAGE_KEY 21112
+#define CRITICAL_SECTION 6
+#define USER_RESPONSE 9
+
 
 //child struct that holds the child number and its pid
 typedef struct ChildProcess

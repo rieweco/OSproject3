@@ -29,7 +29,7 @@ int set_timer(double seconds);
 Clock *sharedClock;
 Message *msg;
 int clockMemoryID;
-int msgID;
+int messageQueueID;
 FILE logfile;
 
 
@@ -39,17 +39,16 @@ int main(int argc, char *argv[])
 	//declare vars
 	//seconds for shmat
 	int total = 0;
-	int prCount = 0;
 	int opt = 0;
 	int numberOfSlaveProcesses = DEFAULT_SLAVE;
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
-	pid_t master = 1;
 	int ptime;
 	int psec;
 	int pnano;
 	int pid;
-	char msgInfo[100];
+	char *execInfo[];
+	char msgContent[100];
 	int doneFlag = 0;
 	
 	//read command line options
@@ -63,7 +62,7 @@ int main(int argc, char *argv[])
 			case 's': numberOfSlaveProcesses = atoi(argv[2]);
 				if( numberOfSlaveProcesses > PROCESS_LIMIT) {
 					numberOfSlaveProcesses = 17;
-					printf("number of slave processes cannot be greater than 17! Setting to 17.");
+					printf("number of slave processes MUST be less than 18! Setting to 17.");
 				}
 				fprintf(stderr, "Max number of slave processes set to : %d\n",
 				numberOfSlaveProcesses);
@@ -88,8 +87,10 @@ int main(int argc, char *argv[])
 	set_timer((double)runtime);
 		
 	//set up message queue
-	
-	
+	messageQueueID = msgget(MESSAGE_KEY, 0666 | IPC_CREAT);
+	msg.mtype = CRITICAL_SECTION;
+
+
 	//set up shared memory segment for sharedClock
 	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0666 | IPC_CREAT);
 	if(clockMemoryID < 0)
@@ -104,8 +105,12 @@ int main(int argc, char *argv[])
 	//initialize clock
 	sharedClock->seconds = 0;
 	sharedClock->nanoseconds = 0;
-
-
+	
+	logfile = fopen(filename, "w");
+	fprintf(logfile, "Message Queue Program Initialized...\n"); fflush(logfile);
+	
+	//string to be used to execvp on fork()
+	execInfo = {"./slave", "12221", "21112", NULL};
 	
 	int count = numberOfSlaveProcesses;
 	int i = 0;
@@ -113,28 +118,32 @@ int main(int argc, char *argv[])
 	for(i; i < numberOfSlaveProcesses; i++)
 	{
 	
-		fprintf(stderr,"Count: %d\n", total);
-		prCount++;
-		master = fork();
-		
+		fprintf(stderr,"Total Process spawn count: %d\n", total);
+		pid = fork();
+		total++;
 	
-		if(master < 0)
+		if(pid < 0)
 		{
 			perror("Program failed to fork");
 			return 1;
 		}	
-		else if(master > 0)
+		else if(pid > 0)
 		{
-			total++;
+			//do nothing
 		}	
 		else
 		{
-			fprintf(stderr, "Process ID:%ld Parent ID:%ld slave ID:%ld\n",
-       	 		(long)getpid(), (long)getppid(), (long)master);
-		
+			execvp(execInfo[0], execInfo);	
 			exit(0);
 		}
+			
+		fprintf(logfile, "Master: Process spawned child # %d, time: %d:%d\n", total, sharedClock->seconds, sharedClock->nanoseconds);
 	}
+
+	//send message to child
+	msgsnd(messageQueueID,&msg, sizeof(Message), 0);
+
+	
 	
 	//while loop to check child processes and close them
 	while(1)
