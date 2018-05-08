@@ -43,10 +43,12 @@ int main(int argc, char *argv[])
 	int numberOfSlaveProcesses = DEFAULT_SLAVE;
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
-	int ptime;
+	int pends;
+	int pendn;
 	int psec;
 	int pnano;
 	int pid;
+	int ppid;
 	char *execInfo[];
 	char msgContent[100];
 	int doneFlag = 0;
@@ -137,13 +139,44 @@ int main(int argc, char *argv[])
 			exit(0);
 		}
 			
-		fprintf(logfile, "Master: Process spawned child # %d, time: %d:%d\n", total, sharedClock->seconds, sharedClock->nanoseconds);
+		fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nanoseconds);
 	}
 
 	//send message to child
 	msgsnd(messageQueueID,&msg, sizeof(Message), 0);
 
-	
+	//check total process count and time
+	while(total < 101 && !doneFlag)
+	{
+		//recieve message from child 
+		msgrcv(messageQueueID, &msg, sizeof(Message), USER_RESPONSE, 0);
+		pnano = msg.nano;
+		psec = msg.sec;
+		pends = msg.ends;
+		pendn = msg.endn;
+		ppid = msg.pid;
+		fprintf(logfile, "Master: Child %d is terminating at my time %d.%d because it reached %d.%d, which lived for %d.%d\n", ppid, sharedClock->seconds, sharedClock->nanoseconds, pends, pendn, psec, pnano);
+		
+		//critical section to change clock 100 ns
+		msgrcv(messageQueueID, &msg, sizeof(Message), CRITICAL_SECTION, 0); 
+		
+		int ns = sharedClock->nanoseconds;
+		ns = ns + 100;
+		
+		if(ns > 1000000000)
+		{
+			ns = ns - 1000000000;
+			sharedClock->nanoseconds = ns;
+			sharedClock-seconds = sharedClock->seconds + 1;
+		}
+		
+		//check if clock time has hit 2 seconds
+		if(sharedClock->seconds >= 2)
+		{
+			doneFlag = 1;
+		}
+		
+	}	
 	
 	//while loop to check child processes and close them
 	while(1)

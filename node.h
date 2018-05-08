@@ -32,7 +32,11 @@ Clock;
 typedef struct Message
 {
 	long mtype;
-	char content[100];
+	int pid;
+	int sec;
+	int nano;
+	int ends;
+	int endn;
 }
 Message;
 
