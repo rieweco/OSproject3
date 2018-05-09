@@ -167,7 +167,7 @@ int main(int argc, char *argv[])
 		{
 			ns = ns - 1000000000;
 			sharedClock->nanoseconds = ns;
-			sharedClock-seconds = sharedClock->seconds + 1;
+			sharedClock->seconds = sharedClock->seconds + 1;
 		}
 		
 		//check if clock time has hit 2 seconds
