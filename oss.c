@@ -1,5 +1,6 @@
 //oss.c
 #include <stdio.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <time.h>
 #include <sys/shm.h>
@@ -10,10 +11,16 @@
 #include "node.h"
 #include <math.h>
 #include <signal.h>
+#include <time.h>
+#include <sys/time.h>
+#include <sys/wait.h>
+#include <sys/msg.h>
+#include <ctype.h>
+#include <string.h>
 
 #define MAX_PROCESSES 100
 #define DEFAULT_RUNTIME 20
-#define DEFAULT_SPAWNS 5
+#define DEFAULT_SPAWN 5
 #define PROCESS_LIMIT 17
 #define DEFAULT_FILENAME "logfile"
 
@@ -27,31 +34,34 @@ int set_timer(double seconds);
 
 //global vars
 Clock *sharedClock;
-Message *msg;
+Message msg;
 int clockMemoryID;
 int messageQueueID;
-FILE logfile;
+FILE *logfile;
 
 
 
 int main(int argc, char *argv[])
 {
 	//declare vars
+	int status;
 	int total = 0;
 	int prcount = 0;
 	int opt = 0;
-	int numberOfSlaveProcesses = DEFAULT_SLAVE;
+	int numberOfSlaveProcesses = DEFAULT_SPAWN;
 	char *filename = DEFAULT_FILENAME;
 	int runtime = DEFAULT_RUNTIME;
 	int pends;
 	int pendn;
 	int psec;
 	int pnano;
+	pid_t wait = 0;
 	int pid;
 	int ppid;
-	char *execInfo[];
+	char *execInfo[] = {"./slave", "12221", "21112", NULL};
 	int doneFlag = 0;
-	
+	srand(time(NULL));
+		
 	//read command line options
 	while((opt = getopt(argc, argv, "h s:l:t:")) != -1)
 	{
@@ -86,14 +96,15 @@ int main(int argc, char *argv[])
 	//set up interrupt handler and timer functions
 	set_handler();
 	set_timer((double)runtime);
+	
 		
 	//set up message queue
 	messageQueueID = msgget(MESSAGE_KEY, 0666 | IPC_CREAT);
+	//msg = (Message *)malloc(sizeof(Message));
 	msg.mtype = CRITICAL_SECTION;
 
-
 	//set up shared memory segment for sharedClock
-	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0666 | IPC_CREAT);
+	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0777 | IPC_CREAT);
 	if(clockMemoryID < 0)
 	{
 		perror("Creating shared memory for clock failed!\n");
@@ -109,14 +120,13 @@ int main(int argc, char *argv[])
 	
 	logfile = fopen(filename, "w");
 	fprintf(logfile, "Message Queue Program Initialized...\n"); fflush(logfile);
+
+
+
 	
-	//string to be used to execvp on fork()
-	execInfo = {"./slave", "12221", "21112", NULL};
-	
-	int count = numberOfSlaveProcesses;
-	int i = 0;
+	int i;
 	//loop to spawn processes
-	for(i; i < numberOfSlaveProcesses; i++)
+	for(i = 0; i < numberOfSlaveProcesses; i++)
 	{
 	
 		fprintf(stderr,"Total Process spawn count: %d\n", total);
@@ -131,7 +141,7 @@ int main(int argc, char *argv[])
 		}	
 		else if(pid > 0)
 		{
-			//do nothing
+			sharedClock->nanoseconds = sharedClock->nanoseconds + 100;
 		}	
 		else
 		{
@@ -144,22 +154,26 @@ int main(int argc, char *argv[])
 
 	//send message to child
 	msgsnd(messageQueueID,&msg, sizeof(Message), 0);
-
+	printf("message sent...\n");
+	
 	//check total process count and time
 	while(total < 101 && !doneFlag)
 	{
 		//recieve message from child 
 		msgrcv(messageQueueID, &msg, sizeof(Message), USER_RESPONSE, 0);
+		printf("message recieved from child...\n");
 		pnano = msg.nano;
 		psec = msg.sec;
 		pends = msg.ends;
 		pendn = msg.endn;
 		ppid = msg.pid;
 		fprintf(logfile, "Master: Child %d is terminating at my time %d.%d because it reached %d.%d, which lived for %d.%d\n", ppid, sharedClock->seconds, sharedClock->nanoseconds, pends, pendn, psec, pnano); fflush(logfile);
-		
+		prcount--;
+		printf("prcount is now: %d\n",prcount);
+
 		//critical section to change clock 100 ns
 		msgrcv(messageQueueID, &msg, sizeof(Message), CRITICAL_SECTION, 0); 
-		
+		printf("message to update clock recieved...\n");
 		int ns = sharedClock->nanoseconds;
 		ns = ns + 100;
 		
@@ -169,41 +183,52 @@ int main(int argc, char *argv[])
 			sharedClock->nanoseconds = ns;
 			sharedClock->seconds = sharedClock->seconds + 1;
 		}
+		else
+		{
+			sharedClock->nanoseconds = ns;
+		}
 		
 		//check if clock time has hit 2 seconds
 		if(sharedClock->seconds >= 2)
 		{
 			doneFlag = 1;
+			printf("time is up!\n");
 		}
-		
-
-		//fork() another process
-		fprintf(stderr,"Total Process spawn count: %d\n", total);
-                pid = fork();
-                total++;
-
-                if(pid < 0)
-                {
-                        perror("Program failed to fork");
-                        return 1;
-                }
-                else if(pid > 0)
-                {
-                        //do nothing
-                }
-                else
-                {
-                        execvp(execInfo[0], execInfo);
-                        exit(0);
-                }
-
-                fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nano
-seconds); fflush(logfile);
-
-		//send message to queue
+	
+			
 		msg.mtype = CRITICAL_SECTION;
-		msgsnd(messageQueueID, &msg, sizeof(Message), 0);
 
+
+		if(prcount < numberOfSlaveProcesses)
+		{
+			//fork() another process
+			fprintf(stderr,"Total Process spawn count: %d\n", total);
+                	pid = fork();
+               		total++;
+			prcount++;
+			printf("prcount is now: %d\n", prcount);
+
+                	if(pid < 0)
+               		{
+                      		perror("Program failed to fork");
+                       		return 1;
+                	}
+                	else if(pid > 0)
+                	{
+                      		//do nothing
+               		}
+                	else
+                	{
+                       		execvp(execInfo[0], execInfo);
+               		}
+
+                	fprintf(logfile, "Master: Creating new child pid %d, at my time %d.%d\n", pid, sharedClock->seconds, sharedClock->nanoseconds); fflush(logfile);
+
+		
+			//send message to queue
+			msgsnd(messageQueueID, &msg, sizeof(Message), 0);
+
+		}
 	}	
 	
 	//close message Queue
@@ -211,7 +236,7 @@ seconds); fflush(logfile);
 
 	//detach shared memory
 	shmdt(sharedClock);
-	shmctl(sharedClockID, IPC_RMID, NULL);
+	shmctl(clockMemoryID, IPC_RMID, NULL);
 
 	//while loop to check child processes and close them
 	signal(SIGUSR1, SIG_IGN);
@@ -235,9 +260,9 @@ seconds); fflush(logfile);
 
 
 //function for exiting on Ctrl-C
-void int_Handler(int sig, siginfo_t *info, void context)
+void int_Handler(int sig, siginfo_t *info, void *context)
 {
-	signt errsave;
+	int errsave;
 
     	errsave = errno;
     	fprintf(logfile, "Interrupt Recieved! Terminating OSS!\n");
@@ -245,8 +270,8 @@ void int_Handler(int sig, siginfo_t *info, void context)
     	signal(SIGUSR1, SIG_IGN);
     	kill(-1*getpid(), SIGUSR1);
     	shmdt(sharedClock);
-    	shmctl(clockID, IPC_RMID, NULL);
-    	msgctl(msgID, IPC_RMID, NULL);
+    	shmctl(clockMemoryID, IPC_RMID, NULL);
+    	msgctl(messageQueueID, IPC_RMID, NULL);
     	fclose(logfile);
     	exit(1);
 }
@@ -257,7 +282,7 @@ int set_handler()
    	struct sigaction sig;
 
     	sig.sa_flags = SA_SIGINFO;
-    	sig.sa_sigaction = interrupt;
+    	sig.sa_sigaction = int_Handler;
     if (((sigemptyset(&sig.sa_mask) == -1) || (sigaction(SIGALRM, &sig, NULL) == -1)) || sigaction(SIGINT, &sig, NULL) == -1)
     {
         return 1;
@@ -275,11 +300,13 @@ int set_timer(double seconds)
     	{
        		return -1;
     	}
-    	value.it_value.tv_sec = (long)sec;
+
+    	value.it_value.tv_sec = (long)seconds;
     	value.it_value.tv_nsec = 0;
     	value.it_interval.tv_sec = 0;
     	value.it_interval.tv_nsec = 0;
-    	return timer_settime(timer 0, &value, NULL);
+
+    	return timer_settime(timer, 0, &value, NULL);
 }
 
 //function to wait - from UNIX book

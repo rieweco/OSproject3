@@ -14,13 +14,13 @@
 
 //global vars
 Clock *sharedClock;
-Message *msg;
+Message msg;
 int clockMemoryID;
 int messageQueueID;
 
 
 //functions
-void int_Handler(int sig, siginfo_t *info, void *context);
+void int_Handler();
 
 int main(int argc, char *argv[])
 {
@@ -37,14 +37,14 @@ int main(int argc, char *argv[])
 	int endtime;
 	int burst;
 	//roll runtime between 1 and 1000000
-	srand(time(0));
-	endtime = (rand() % 1000000) + 1;
-	
+	srand(time(NULL) ^ getpid());
+	endtime = (rand() % 1000000) + 500000;
+
 	//set up msg queue
 	messageQueueID = msgget(MESSAGE_KEY, 0666);
-
+	//msg = (Message *)malloc(sizeof(Message));
 	//set up shared memory for clock
-	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0666);
+	clockMemoryID = shmget(CLOCK_KEY, sizeof(Clock), 0777);
 
 	if(clockMemoryID < 0)
 	{
@@ -53,19 +53,21 @@ int main(int argc, char *argv[])
 	}
 
 	//attach clock
-	sharedClock = shmat(clockMemoryID, NULL, 0);
-	
+	sharedClock = (struct Clock *)shmat(clockMemoryID, NULL, 0);
+
 	//initialize runtime to 0
 	runtime = 0;
 	
 	while(runtime < endtime)
 	{
+		
 		//check for permission to run
 		msgrcv(messageQueueID, &msg, sizeof(Message), CRITICAL_SECTION, 0);
-		
+		printf("message recieved from master...\n");
+	
 		//roll for burst time
 		burst = (rand() % 500000) + 1000;
-
+		printf("endtime: %d, burst: %d, runtime: %d\n", endtime, burst, runtime);
 		if((runtime + burst) > endtime) 
 		{
 			runtime = endtime;
@@ -73,7 +75,9 @@ int main(int argc, char *argv[])
 		else 
 		{
 			runtime = runtime + burst;
-			total_n + total_n + burst;	
+			printf("runtime: %d\n", runtime);
+			total_n = total_n + burst;	
+			printf("total_n: %d\n", total_n);
 		}
 
 		int ns = sharedClock->nanoseconds;
@@ -84,7 +88,11 @@ int main(int argc, char *argv[])
                         ns = ns - 1000000000;
                         sharedClock->nanoseconds = ns;
                         sharedClock->seconds = sharedClock->seconds + 1;
-                }	
+                }
+		else
+		{
+			sharedClock->nanoseconds = ns;	
+		}	
 
 		end_s = sharedClock->seconds;
 		end_n = sharedClock->nanoseconds;
@@ -103,11 +111,11 @@ int main(int argc, char *argv[])
 	//once program has reached endtime, send message with runtime data and terminate
 	msg.mtype = USER_RESPONSE;
 	msg.pid = getpid();
-	msg.sec = 0;
-	msg.nano = runtime;
+	msg.sec = total_s;
+	msg.nano = total_n;
 	msg.ends = end_s;
 	msg.endn = end_n;
-	
+	printf("totaln: %d, msg.nano: %d, endn: %d, msg.endn: %d\n",total_n, msg.nano, end_n, msg.endn);	
 
 	msgsnd(messageQueueID, &msg, sizeof(Message), 0);
 
@@ -120,7 +128,7 @@ int main(int argc, char *argv[])
 
 
 //function to recieve interrupts
-void int_Handler(int sig, siginfo_t *info, void *context)
+void int_Handler()
 {
 	//detach clock
 	shmdt(sharedClock);

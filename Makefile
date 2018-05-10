@@ -1,5 +1,5 @@
 #	MAKEFILE
-CFLAGS = -g -Wall -Wshadow -o
+CFLAGS = -g -lrt -Wall -Wshadow -o
 GCC = gcc $(CFLAGS)
 
 all: oss slave
