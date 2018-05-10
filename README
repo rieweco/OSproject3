@@ -135,5 +135,24 @@ finished with slave.c code. starting debugging after make.
 #
 -----------------------------------------------------------------
 
+potential final update. project works fine until 27 processes have
+been spawned and then the next fork() fails. This is better than
+what I had turned in previously (nothing) for a grade, but would
+still like to get this working fully.
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# Committer: Cody Riewerts <o2-riewerts@hoare7.cs.umsl.edu>
+#
+# On branch master
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
+#
+#       modified:   Makefile
+#       deleted:    oss
+#       modified:   oss.c
+#       modified:   slave.c
+#
+-----------------------------------------------------------------
 
 
